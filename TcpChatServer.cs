@@ -1,15 +1,101 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 
 namespace ServerTcp;
 
 internal class TcpChatServer(int port)
 {
     private readonly TcpListener _listener = new(IPAddress.Any, port);
+    private readonly ConcurrentDictionary<string, TcpClient> _clients = new();
+    private int _clientCounter = 1;
 
-    public void Start()
+    public async Task StartAsync()
     {
-         _listener.Start();
-        Console.WriteLine($"[Server] Listening on port {((IPEndPoint)_listener.LocalEndpoint).Port}");
+        _listener.Start();
+        Console.WriteLine($"Listening on port {((IPEndPoint)_listener.LocalEndpoint).Port}");
+
+        while (true)
+        {
+            try
+            {
+                var tcpClient = await _listener.AcceptTcpClientAsync();
+                var clientId = $"Client{_clientCounter++}";
+
+                _clients.TryAdd(clientId, tcpClient);
+                Console.WriteLine($"ClientId: {clientId} Connected. Total: {_clients.Count}");
+
+                await BroadcastMessage(clientId, "has joined the chat");
+                _ = HandleClientAsync(clientId, tcpClient);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"StartAsync Error: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task HandleClientAsync(string clientId, TcpClient client)
+    {
+        using (client)
+        {
+            var stream = client.GetStream();
+            var buffer = new byte[4096];
+
+            try
+            {
+                while (client.Connected)
+                {
+                    var bytesRead = await stream.ReadAsync(buffer);
+                    if (bytesRead == 0) break; // Client disconnected
+
+                    var message = Encoding.UTF8.GetString(buffer, 0, bytesRead).Trim();
+                    if (!string.IsNullOrEmpty(message))
+                        await BroadcastMessage(clientId, message);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ClientId {clientId} Error: {ex.Message}");
+            }
+            finally
+            {
+                DisconnectClient(clientId);
+            }
+        }
+    }
+
+    private void DisconnectClient(string clientId)
+    {
+        if (!_clients.TryRemove(clientId, out var client)) return;
+        
+        client.Dispose();
+        Console.WriteLine($"ClientId: {clientId} Disconnected. Remaining: {_clients.Count}");
+        _ = BroadcastMessage(clientId, "has left the chat");
+    }
+
+    private async Task BroadcastMessage(string senderId, string message)
+    {
+        var formatted = $"{senderId}: {message}\r\n";
+        var data = Encoding.UTF8.GetBytes(formatted);
+
+        foreach (var (clientId, client) in _clients.Where((client) => client.Key != senderId))
+        {
+            await SendToClient(clientId, client, data);
+        }
+    }
+
+    private static async Task SendToClient(string clientId, TcpClient client, byte[] data)
+    {
+        try
+        {
+            var stream = client.GetStream();
+            await stream.WriteAsync(data);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"SendToClient Failed for ClientId {clientId}: {ex.Message}");
+        }
     }
 }
