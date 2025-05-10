@@ -1,3 +1,5 @@
-﻿// See https://aka.ms/new-console-template for more information
+﻿using ServerTcp;
 
-Console.WriteLine("Hello, World!");
+const int port = 9000; 
+var server = new TcpChatServer(port);
+server.Start();
