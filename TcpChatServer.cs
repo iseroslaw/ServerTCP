@@ -12,6 +12,7 @@ public class TcpChatServer(int port) : IDisposable
     private readonly TcpListener _listener = new(IPAddress.Any, port);
     private readonly ConcurrentDictionary<ClientId, TcpClient> _clients = new();
     private readonly Subject<(ClientId SenderId, string Message)> _messageStream = new();
+    private IDisposable? _clientConnectionSubscription;
     private int _clientCounter;
     private bool _disposed;
 
@@ -32,7 +33,7 @@ public class TcpChatServer(int port) : IDisposable
 
     private void SubscribeToClientConnections()
     {
-        Observable
+        _clientConnectionSubscription = Observable
             .FromAsync(_listener.AcceptTcpClientAsync)
             .Repeat()
             .Subscribe(OnClientConnected);
@@ -45,16 +46,6 @@ public class TcpChatServer(int port) : IDisposable
         Console.WriteLine($"ClientId: {clientId.Value} Connected. Total: {_clients.Count}");
         _ = BroadcastMessageFrom(clientId, "has joined the chat");
         SubscribeToClientInput(tcpClient, clientId);
-    }
-
-    private void SubscribeToMessageStream()
-    {
-        _messageStream.Subscribe(OnMessageReceived);
-    }
-    
-    private void OnMessageReceived((ClientId SenderId, string Message) tuple)
-    {
-        _ = BroadcastMessageFrom(tuple.SenderId, tuple.Message);
     }
 
     private void SubscribeToClientInput(TcpClient client, ClientId clientId)
@@ -73,6 +64,16 @@ public class TcpChatServer(int port) : IDisposable
             line => _messageStream.OnNext((clientId, line)!),
             ex => { Console.WriteLine($"ClientId {clientId.Value} Error: {ex.Message}"); },
             () => { _ = DisconnectClient(clientId); });
+    }
+    
+    private void SubscribeToMessageStream()
+    {
+        _messageStream.Subscribe(OnMessageReceived);
+    }
+    
+    private void OnMessageReceived((ClientId SenderId, string Message) tuple)
+    {
+        _ = BroadcastMessageFrom(tuple.SenderId, tuple.Message);
     }
 
     private static StreamReader ReaderFrom(TcpClient client) => new(client.GetStream(), Encoding.UTF8);
@@ -110,10 +111,25 @@ public class TcpChatServer(int port) : IDisposable
         if (disposing)
         {
             _listener.Stop();
+            _clientConnectionSubscription?.Dispose();
+            _messageStream.Dispose();
+            
             foreach (var client in _clients.Values)
             {
-                client.Dispose();
+                try
+                {
+                    client.Close();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error closing a client during server shutdown: {ex.Message}");
+                }
+                finally
+                {
+                    client.Dispose();
+                }
             }
+            _clients.Clear();
         }
 
         _disposed = true;
