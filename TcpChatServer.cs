@@ -5,11 +5,12 @@ using System.Text;
 
 namespace ServerTcp;
 
-internal class TcpChatServer(int port)
+internal sealed class TcpChatServer(int port) : IDisposable
 {
     private readonly TcpListener _listener = new(IPAddress.Any, port);
     private readonly ConcurrentDictionary<string, TcpClient> _clients = new();
     private int _clientCounter = 1;
+    private bool _disposed;
 
     public async Task StartAsync()
     {
@@ -69,7 +70,7 @@ internal class TcpChatServer(int port)
     private void DisconnectClient(string clientId)
     {
         if (!_clients.TryRemove(clientId, out var client)) return;
-        
+
         client.Dispose();
         Console.WriteLine($"ClientId: {clientId} Disconnected. Remaining: {_clients.Count}");
         _ = BroadcastMessage(clientId, "has left the chat");
@@ -97,5 +98,32 @@ internal class TcpChatServer(int port)
         {
             Console.WriteLine($"SendToClient Failed for ClientId {clientId}: {ex.Message}");
         }
+    }
+
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    private void Dispose(bool disposing)
+    {
+        if (_disposed) return;
+
+        if (disposing)
+        {
+            _listener.Stop();
+            foreach (var client in _clients.Values)
+            {
+                client.Dispose();
+            }
+        }
+
+        _disposed = true;
+    }
+
+    ~TcpChatServer()
+    {
+        Dispose(false);
     }
 }
