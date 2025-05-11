@@ -7,7 +7,7 @@ using System.Text;
 
 namespace ServerTcp;
 
-public class TcpChatServerWithObservable(int port) : IDisposable
+public class TcpChatServer(int port) : IDisposable
 {
     private readonly TcpListener _listener = new(IPAddress.Any, port);
     private readonly ConcurrentDictionary<ClientId, TcpClient> _clients = new();
@@ -109,7 +109,7 @@ public class TcpChatServerWithObservable(int port) : IDisposable
         _disposed = true;
     }
 
-    ~TcpChatServerWithObservable()
+    ~TcpChatServer()
     {
         Dispose(false);
     }
