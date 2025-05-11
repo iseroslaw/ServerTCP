@@ -6,8 +6,8 @@ namespace ServerTcp;
 public readonly record struct ClientId(string Value);
 public static class Utils
 {
-    public static IEnumerable<KeyValuePair<ClientId, TcpClient>> MessageReceiversFrom(this ConcurrentDictionary<ClientId, TcpClient> clients, ClientId senderId) =>
-        clients.Where((client) => client.Key != senderId);
+    public static IEnumerable<KeyValuePair<ClientId, SubscribedClient>> MessageReceiversFrom(this ConcurrentDictionary<ClientId, SubscribedClient> clients, ClientId senderId) =>
+        clients.Where((subscribedClient) => subscribedClient.Key != senderId);
     
     public static async Task SendToClient(ClientId clientId, TcpClient client, byte[] data)
     {

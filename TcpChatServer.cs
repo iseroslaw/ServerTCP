@@ -10,7 +10,7 @@ namespace ServerTcp;
 public class TcpChatServer(int port) : IDisposable
 {
     private readonly TcpListener _listener = new(IPAddress.Any, port);
-    private readonly ConcurrentDictionary<ClientId, TcpClient> _clients = new();
+    private readonly ConcurrentDictionary<ClientId, SubscribedClient> _subscribedClients = new();
     private readonly Subject<(ClientId SenderId, string Message)> _messageStream = new();
     private IDisposable? _clientConnectionSubscription;
     private int _clientCounter;
@@ -24,7 +24,7 @@ public class TcpChatServer(int port) : IDisposable
 
         await Task.Delay(Timeout.Infinite);
     }
-    
+
     private void StartListener()
     {
         _listener.Start();
@@ -42,35 +42,35 @@ public class TcpChatServer(int port) : IDisposable
     private void OnClientConnected(TcpClient tcpClient)
     {
         var clientId = NextClientId();
-        _clients.TryAdd(clientId, tcpClient);
-        Console.WriteLine($"ClientId: {clientId.Value} Connected. Total: {_clients.Count}");
+        var subscription = SubscribeToClientInput(tcpClient, clientId);
         _ = BroadcastMessageFrom(clientId, "has joined the chat");
-        SubscribeToClientInput(tcpClient, clientId);
+        _subscribedClients.TryAdd(clientId, new SubscribedClient(tcpClient, subscription));
+
+        Console.WriteLine($"ClientId: {clientId.Value} Connected. Total: {_subscribedClients.Count}");
     }
 
-    private void SubscribeToClientInput(TcpClient client, ClientId clientId)
+    private IDisposable SubscribeToClientInput(TcpClient client, ClientId clientId)
     {
         var reader = ReaderFrom(client);
 
-        var linesObservable = Observable.Using(
-            () => reader,
-            _ => Observable
-                .FromAsync(reader.ReadLineAsync)
-                .Repeat()
-                .TakeWhile(line => line != null && client.Connected)
-        );
-
-        linesObservable.Subscribe(
-            line => _messageStream.OnNext((clientId, line)!),
-            ex => { Console.WriteLine($"ClientId {clientId.Value} Error: {ex.Message}"); },
-            () => { _ = DisconnectClient(clientId); });
+        return Observable.Using(
+                () => reader,
+                _ => Observable
+                    .FromAsync(reader.ReadLineAsync)
+                    .Repeat()
+                    .TakeWhile(line => line != null && client.Connected)
+            )
+            .Subscribe(
+                line => _messageStream.OnNext((clientId, line)!),
+                ex => { Console.WriteLine($"ClientId {clientId.Value} Error: {ex.Message}"); },
+                () => { _ = DisconnectClient(clientId); });
     }
-    
+
     private void SubscribeToMessageStream()
     {
         _messageStream.Subscribe(OnMessageReceived);
     }
-    
+
     private void OnMessageReceived((ClientId SenderId, string Message) tuple)
     {
         _ = BroadcastMessageFrom(tuple.SenderId, tuple.Message);
@@ -83,20 +83,38 @@ public class TcpChatServer(int port) : IDisposable
         var formatted = Utils.CompleteMessageFrom(senderId, message);
         var data = Encoding.UTF8.GetBytes(formatted);
 
-        await Task.WhenAll(_clients.MessageReceiversFrom(senderId)
-            .Select(client => Utils.SendToClient(client.Key, client.Value, data)));
+        await Task.WhenAll(_subscribedClients.MessageReceiversFrom(senderId)
+            .Select(subscribedClient => Utils.SendToClient(subscribedClient.Key, subscribedClient.Value.Client, data)));
     }
 
     private async Task DisconnectClient(ClientId clientId)
     {
-        if (!_clients.TryRemove(clientId, out var client)) return;
+        if (!_subscribedClients.TryRemove(clientId, out var subscribedClient)) return;
 
-        client.Dispose();
-        Console.WriteLine($"ClientId: {clientId.Value} Disconnected. Remaining: {_clients.Count}");
+        DisposeSubscribedClient(subscribedClient);
+
+        Console.WriteLine($"ClientId: {clientId.Value} Disconnected. Remaining: {_subscribedClients.Count}");
         await BroadcastMessageFrom(clientId, "has left the chat");
     }
 
     private ClientId NextClientId() => new($"Client{++_clientCounter}");
+
+    private static void DisposeSubscribedClient(SubscribedClient subscribedClient)
+    {
+        try
+        {
+            subscribedClient.Client.Close();
+            subscribedClient.Subscription.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error closing a client during server shutdown: {ex.Message}");
+        }
+        finally
+        {
+            subscribedClient.Client.Dispose();
+        }
+    }
 
     public void Dispose()
     {
@@ -113,23 +131,13 @@ public class TcpChatServer(int port) : IDisposable
             _listener.Stop();
             _clientConnectionSubscription?.Dispose();
             _messageStream.Dispose();
-            
-            foreach (var client in _clients.Values)
+
+            foreach (var subscribedClient in _subscribedClients.Values)
             {
-                try
-                {
-                    client.Close();
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error closing a client during server shutdown: {ex.Message}");
-                }
-                finally
-                {
-                    client.Dispose();
-                }
+                DisposeSubscribedClient(subscribedClient);
             }
-            _clients.Clear();
+
+            _subscribedClients.Clear();
         }
 
         _disposed = true;
