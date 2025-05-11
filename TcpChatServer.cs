@@ -89,9 +89,22 @@ internal sealed class TcpChatServer(int port) : IDisposable
 
     private static async Task SendToClient(string clientId, TcpClient client, byte[] data)
     {
+        if (!client.Connected)
+        {
+            Console.WriteLine($"ClientId {clientId} is not connected.");
+            return;
+        }
+        
         try
         {
             var stream = client.GetStream();
+            
+            if (!stream.CanWrite)
+            {
+                Console.WriteLine($"Stream for ClientId {clientId} is not writable.");
+                return;
+            }
+            
             await stream.WriteAsync(data);
         }
         catch (Exception ex)
