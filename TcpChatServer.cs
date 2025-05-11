@@ -17,34 +17,44 @@ public class TcpChatServer(int port) : IDisposable
 
     public async Task StartAsync()
     {
+        StartListener();
+        SubscribeToClientConnections();
+        SubscribeToMessageStream();
+
+        await Task.Delay(Timeout.Infinite);
+    }
+    
+    private void StartListener()
+    {
         _listener.Start();
         Console.WriteLine($"Listening on port {((IPEndPoint)_listener.LocalEndpoint).Port}");
+    }
 
-        try
-        {
-            Observable
-                .FromAsync(_listener.AcceptTcpClientAsync)
-                .Repeat()
-                .Subscribe( tcpClient =>
-                {
-                    var clientId = NextClientId();
-                    _clients.TryAdd(clientId, tcpClient);
-                    Console.WriteLine($"ClientId: {clientId.Value} Connected. Total: {_clients.Count}");
-                     _ = BroadcastMessageFrom(clientId, "has joined the chat");
-                    SubscribeToClientInput(tcpClient, clientId);
-                });
+    private void SubscribeToClientConnections()
+    {
+        Observable
+            .FromAsync(_listener.AcceptTcpClientAsync)
+            .Repeat()
+            .Subscribe(OnClientConnected);
+    }
 
-            _messageStream.Subscribe( tuple =>
-            {
-                 _ = BroadcastMessageFrom(tuple.SenderId, tuple.Message);
-            });
+    private void OnClientConnected(TcpClient tcpClient)
+    {
+        var clientId = NextClientId();
+        _clients.TryAdd(clientId, tcpClient);
+        Console.WriteLine($"ClientId: {clientId.Value} Connected. Total: {_clients.Count}");
+        _ = BroadcastMessageFrom(clientId, "has joined the chat");
+        SubscribeToClientInput(tcpClient, clientId);
+    }
 
-            await Task.Delay(Timeout.Infinite);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"StartAsync Error: {ex.Message}");
-        }
+    private void SubscribeToMessageStream()
+    {
+        _messageStream.Subscribe(OnMessageReceived);
+    }
+    
+    private void OnMessageReceived((ClientId SenderId, string Message) tuple)
+    {
+        _ = BroadcastMessageFrom(tuple.SenderId, tuple.Message);
     }
 
     private void SubscribeToClientInput(TcpClient client, ClientId clientId)
