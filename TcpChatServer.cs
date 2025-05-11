@@ -10,7 +10,7 @@ internal sealed class TcpChatServer(int port) : IDisposable
 {
     private readonly TcpListener _listener = new(IPAddress.Any, port);
     private readonly ConcurrentDictionary<ClientId, TcpClient> _clients = new();
-    private int _clientCounter = 1;
+    private int _clientCounter = 0;
     private bool _disposed;
 
     public async Task StartAsync()
@@ -38,7 +38,7 @@ internal sealed class TcpChatServer(int port) : IDisposable
         }
     }
 
-    private ClientId NextClientId() => new($"Client{_clientCounter++}");
+    private ClientId NextClientId() => new($"Client{++_clientCounter}");
 
     private async Task HandleClientAsync(ClientId clientId, TcpClient client)
     {
