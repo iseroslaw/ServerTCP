@@ -5,7 +5,6 @@ using System.Text;
 
 namespace ServerTcp;
 
-public readonly record struct ClientId(string Value);
 internal sealed class TcpChatServer(int port) : IDisposable
 {
     private readonly TcpListener _listener = new(IPAddress.Any, port);
@@ -28,7 +27,7 @@ internal sealed class TcpChatServer(int port) : IDisposable
                 _clients.TryAdd(clientId, tcpClient);
                 Console.WriteLine($"ClientId: {clientId.Value} Connected. Total: {_clients.Count}");
 
-                await BroadcastMessage(clientId, "has joined the chat");
+                await BroadcastMessageFrom(clientId, "has joined the chat");
                 _ = HandleClientAsync(clientId, tcpClient);
             }
             catch (Exception ex)
@@ -56,7 +55,7 @@ internal sealed class TcpChatServer(int port) : IDisposable
 
                     var message = Encoding.UTF8.GetString(buffer, 0, bytesRead).Trim();
                     if (!string.IsNullOrEmpty(message))
-                        await BroadcastMessage(clientId, message);
+                        await BroadcastMessageFrom(clientId, message);
                 }
             }
             catch (Exception ex)
@@ -76,22 +75,17 @@ internal sealed class TcpChatServer(int port) : IDisposable
 
         client.Dispose();
         Console.WriteLine($"ClientId: {clientId.Value} Disconnected. Remaining: {_clients.Count}");
-        _ = BroadcastMessage(clientId, "has left the chat");
+        _ = BroadcastMessageFrom(clientId, "has left the chat");
     }
 
-    private async Task BroadcastMessage(ClientId senderId, string message)
+    private async Task BroadcastMessageFrom(ClientId senderId, string message)
     {
-        var formatted = CompleteMessageFrom(senderId, message);
+        var formatted = Utils.CompleteMessageFrom(senderId, message);
         var data = Encoding.UTF8.GetBytes(formatted);
 
-        await Task.WhenAll(MessageReceiversFrom(senderId)
+        await Task.WhenAll(_clients.MessageReceiversFrom(senderId)
             .Select(client => SendToClient(client.Key, client.Value, data)));
     }
-
-    private IEnumerable<KeyValuePair<ClientId, TcpClient>> MessageReceiversFrom(ClientId senderId) =>
-        _clients.Where((client) => client.Key != senderId);
-
-    private static string CompleteMessageFrom(ClientId senderId, string message) => $"{senderId}: {message}\r\n";
 
     private static async Task SendToClient(ClientId clientId, TcpClient client, byte[] data)
     {
