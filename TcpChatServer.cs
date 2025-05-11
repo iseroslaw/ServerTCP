@@ -23,7 +23,7 @@ internal sealed class TcpChatServer(int port) : IDisposable
             try
             {
                 var tcpClient = await _listener.AcceptTcpClientAsync();
-                var clientId = new ClientId($"Client{_clientCounter++}");
+                var clientId = NextClientId();
 
                 _clients.TryAdd(clientId, tcpClient);
                 Console.WriteLine($"ClientId: {clientId.Value} Connected. Total: {_clients.Count}");
@@ -37,6 +37,8 @@ internal sealed class TcpChatServer(int port) : IDisposable
             }
         }
     }
+
+    private ClientId NextClientId() => new($"Client{_clientCounter++}");
 
     private async Task HandleClientAsync(ClientId clientId, TcpClient client)
     {
