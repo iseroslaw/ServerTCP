@@ -5,10 +5,11 @@ using System.Text;
 
 namespace ServerTcp;
 
+public readonly record struct ClientId(string Value);
 internal sealed class TcpChatServer(int port) : IDisposable
 {
     private readonly TcpListener _listener = new(IPAddress.Any, port);
-    private readonly ConcurrentDictionary<string, TcpClient> _clients = new();
+    private readonly ConcurrentDictionary<ClientId, TcpClient> _clients = new();
     private int _clientCounter = 1;
     private bool _disposed;
 
@@ -22,10 +23,10 @@ internal sealed class TcpChatServer(int port) : IDisposable
             try
             {
                 var tcpClient = await _listener.AcceptTcpClientAsync();
-                var clientId = $"Client{_clientCounter++}";
+                var clientId = new ClientId($"Client{_clientCounter++}");
 
                 _clients.TryAdd(clientId, tcpClient);
-                Console.WriteLine($"ClientId: {clientId} Connected. Total: {_clients.Count}");
+                Console.WriteLine($"ClientId: {clientId.Value} Connected. Total: {_clients.Count}");
 
                 await BroadcastMessage(clientId, "has joined the chat");
                 _ = HandleClientAsync(clientId, tcpClient);
@@ -37,7 +38,7 @@ internal sealed class TcpChatServer(int port) : IDisposable
         }
     }
 
-    private async Task HandleClientAsync(string clientId, TcpClient client)
+    private async Task HandleClientAsync(ClientId clientId, TcpClient client)
     {
         using (client)
         {
@@ -58,7 +59,7 @@ internal sealed class TcpChatServer(int port) : IDisposable
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"ClientId {clientId} Error: {ex.Message}");
+                Console.WriteLine($"ClientId {clientId.Value} Error: {ex.Message}");
             }
             finally
             {
@@ -67,16 +68,16 @@ internal sealed class TcpChatServer(int port) : IDisposable
         }
     }
 
-    private void DisconnectClient(string clientId)
+    private void DisconnectClient(ClientId clientId)
     {
         if (!_clients.TryRemove(clientId, out var client)) return;
 
         client.Dispose();
-        Console.WriteLine($"ClientId: {clientId} Disconnected. Remaining: {_clients.Count}");
+        Console.WriteLine($"ClientId: {clientId.Value} Disconnected. Remaining: {_clients.Count}");
         _ = BroadcastMessage(clientId, "has left the chat");
     }
 
-    private async Task BroadcastMessage(string senderId, string message)
+    private async Task BroadcastMessage(ClientId senderId, string message)
     {
         var formatted = CompleteMessageFrom(senderId, message);
         var data = Encoding.UTF8.GetBytes(formatted);
@@ -85,16 +86,16 @@ internal sealed class TcpChatServer(int port) : IDisposable
             .Select(client => SendToClient(client.Key, client.Value, data)));
     }
 
-    private IEnumerable<KeyValuePair<string, TcpClient>> MessageReceiversFrom(string senderId) =>
+    private IEnumerable<KeyValuePair<ClientId, TcpClient>> MessageReceiversFrom(ClientId senderId) =>
         _clients.Where((client) => client.Key != senderId);
 
-    private static string CompleteMessageFrom(string senderId, string message) => $"{senderId}: {message}\r\n";
+    private static string CompleteMessageFrom(ClientId senderId, string message) => $"{senderId}: {message}\r\n";
 
-    private static async Task SendToClient(string clientId, TcpClient client, byte[] data)
+    private static async Task SendToClient(ClientId clientId, TcpClient client, byte[] data)
     {
         if (!client.Connected)
         {
-            Console.WriteLine($"ClientId {clientId} is not connected.");
+            Console.WriteLine($"ClientId {clientId.Value} is not connected.");
             return;
         }
 
@@ -104,7 +105,7 @@ internal sealed class TcpChatServer(int port) : IDisposable
 
             if (!stream.CanWrite)
             {
-                Console.WriteLine($"Stream for ClientId {clientId} is not writable.");
+                Console.WriteLine($"Stream for ClientId {clientId.Value} is not writable.");
                 return;
             }
 
@@ -112,7 +113,7 @@ internal sealed class TcpChatServer(int port) : IDisposable
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"SendToClient Failed for ClientId {clientId}: {ex.Message}");
+            Console.WriteLine($"SendToClient Failed for ClientId {clientId.Value}: {ex.Message}");
         }
     }
 
