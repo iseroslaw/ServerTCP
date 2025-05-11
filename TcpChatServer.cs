@@ -81,10 +81,8 @@ internal sealed class TcpChatServer(int port) : IDisposable
         var formatted = CompleteMessageFrom(senderId, message);
         var data = Encoding.UTF8.GetBytes(formatted);
 
-        foreach (var (clientId, client) in MessageReceiversFrom(senderId))
-        {
-            await SendToClient(clientId, client, data);
-        }
+        await Task.WhenAll(MessageReceiversFrom(senderId)
+            .Select(client => SendToClient(client.Key, client.Value, data)));
     }
 
     private IEnumerable<KeyValuePair<string, TcpClient>> MessageReceiversFrom(string senderId) =>
