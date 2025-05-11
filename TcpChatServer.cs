@@ -78,7 +78,7 @@ internal sealed class TcpChatServer(int port) : IDisposable
 
     private async Task BroadcastMessage(string senderId, string message)
     {
-        var formatted = $"{senderId}: {message}\r\n";
+        var formatted = CompleteMessageFrom(senderId, message);
         var data = Encoding.UTF8.GetBytes(formatted);
 
         foreach (var (clientId, client) in _clients.Where((client) => client.Key != senderId))
@@ -86,6 +86,8 @@ internal sealed class TcpChatServer(int port) : IDisposable
             await SendToClient(clientId, client, data);
         }
     }
+
+    private static string CompleteMessageFrom(string senderId, string message) => $"{senderId}: {message}\r\n";
 
     private static async Task SendToClient(string clientId, TcpClient client, byte[] data)
     {
