@@ -81,11 +81,14 @@ internal sealed class TcpChatServer(int port) : IDisposable
         var formatted = CompleteMessageFrom(senderId, message);
         var data = Encoding.UTF8.GetBytes(formatted);
 
-        foreach (var (clientId, client) in _clients.Where((client) => client.Key != senderId))
+        foreach (var (clientId, client) in MessageReceiversFrom(senderId))
         {
             await SendToClient(clientId, client, data);
         }
     }
+
+    private IEnumerable<KeyValuePair<string, TcpClient>> MessageReceiversFrom(string senderId) =>
+        _clients.Where((client) => client.Key != senderId);
 
     private static string CompleteMessageFrom(string senderId, string message) => $"{senderId}: {message}\r\n";
 
@@ -96,17 +99,17 @@ internal sealed class TcpChatServer(int port) : IDisposable
             Console.WriteLine($"ClientId {clientId} is not connected.");
             return;
         }
-        
+
         try
         {
             var stream = client.GetStream();
-            
+
             if (!stream.CanWrite)
             {
                 Console.WriteLine($"Stream for ClientId {clientId} is not writable.");
                 return;
             }
-            
+
             await stream.WriteAsync(data);
         }
         catch (Exception ex)
