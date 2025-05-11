@@ -39,7 +39,7 @@ public class TcpChatServer(int port) : IDisposable
                  _ = BroadcastMessageFrom(tuple.SenderId, tuple.Message);
             });
 
-            await Task.Delay(-1);
+            await Task.Delay(Timeout.Infinite);
         }
         catch (Exception ex)
         {
@@ -56,7 +56,7 @@ public class TcpChatServer(int port) : IDisposable
             _ => Observable
                 .FromAsync(reader.ReadLineAsync)
                 .Repeat()
-                .TakeWhile(line => line != null)
+                .TakeWhile(line => line != null && client.Connected)
         );
 
         linesObservable.Subscribe(
